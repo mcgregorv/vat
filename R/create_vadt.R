@@ -10,7 +10,6 @@
 #'@param toutinc Periodicity of writing output (in days)
 #'@param diet Include diagnostic diet plots? default is TRUE
 #'@import dplyr
-#'@import data.table
 #'@importFrom ncdf4 nc_open
 #'@importFrom ncdf4 ncvar_get
 #'@importFrom plyr ldply
@@ -34,6 +33,13 @@
 #' 
 
 create_vadt <- function(outdir, fgfile, biolprm, ncout, startyear, toutinc, diet = TRUE){
+  
+  
+#   outdir=outPath
+#   startyear=modelStartYear
+#   toutinc=daysTimeStep
+#   diet = TRUE
+  
   # contants
   nsecs <- 86400
   ndays <- 365
@@ -58,31 +64,18 @@ create_vadt <- function(outdir, fgfile, biolprm, ncout, startyear, toutinc, diet
   if(diet){
     cat("### ------------ Setting up diet matrix plot                             ------------ ###\n")    
     diet <- read.table(paste(outdir, ncout, "DietCheck.txt", sep = ""), header = TRUE, stringsAsFactors = TRUE)
-    if(any(names(diet) == "Predator")) {
-      colnames(diet) <- c("Time", "Code", "Habitat", fun_group[,4])
-    } else {
     colnames(diet) <- c("Time", "Code", "Cohort", "Stock", fun_group[,4])
-    }
     diet <- merge(diet, fun_group[,c(1,2,4)])
     diet <- arrange(diet, Index)
     diet$Code <- diet$Name
     diet$Name <- NULL; diet$Index <- NULL
-    
-    if(any(names(diet) == "Habitat")){
     diet_l <- diet %>%
-      gather("Prey", "eaten", 4:ncol(diet))
-    colnames(diet_l) <- c("Predator","Time","Habitat", "Prey", "eaten")
-    } else {
-      diet_l <- diet %>%
-        gather("Prey", "eaten", 5:ncol(diet))
-      colnames(diet_l) <- c("Predator","Time","Cohort", "Stock", "Prey", "eaten")
-    }
+      gather("Prey", "eaten", 5:ncol(diet))
+    colnames(diet_l) <- c("Predator","Time","Cohort", "Stock", "Prey", "eaten")
     diet_l$Time <- startyear + diet_l$Time/365
     tot_pred <- diet_l %>%
       group_by(Predator,Prey) %>%
       summarize(Eaten = mean(eaten))
-    diet_l <- data.table(diet_l)
-    tot_pred <- data.table(tot_pred)
   } else {
     diet_l <- NULL
     tot_pred <- NULL
@@ -228,7 +221,17 @@ create_vadt <- function(outdir, fgfile, biolprm, ncout, startyear, toutinc, diet
   vert_names <- fun_group[fun_group$GroupType %in% c("FISH", "MAMMAL", "SHARK", "BIRD"), "Code"]
   mat_age <- grep("_age_mat", biolprm, value = T)
   species_ids <- str_split_fixed(mat_age, "_age_mat", n = 2)[,1]
-  juvenile_age <- as.numeric(gsub("[^\\d]+", "", mat_age, perl=TRUE))[which(species_ids %in% vert_names)]
+  #   juvenile_age <- as.numeric(gsub("[^\\d]+", "", mat_age, perl=TRUE))[which(species_ids %in% vert_names)]
+  #test how many numbers there are. Sometimes there is an example value as well as the actual value, 
+  #in which case we only want the first one
+  get_first_number<-function(x){
+    yy<-gsub("([^\\d])","#",x,perl=TRUE)
+    yyy<-unlist(str_split(yy,"#"))
+    xPos<-grep("[^\\d]",yyy)[1]
+    thisNum<-as.numeric(yyy[xPos])
+  }
+  temp<-lapply(mat_age,FUN=get_first_number)
+  juvenile_age<-as.numeric(unlist(temp))
   species_ids <- species_ids[which(species_ids %in% vert_names)]
   
   erla_plots <- list()
@@ -249,8 +252,9 @@ create_vadt <- function(outdir, fgfile, biolprm, ncout, startyear, toutinc, diet
         summarize_each(funs(sum))
       colnames(juv_tmp) <- c("Layer", "Time", paste("Box", 0:(ncol(juv_tmp)-3), sep =" "))
       juv_tmp$Layer <- factor(juv_tmp$Layer,levels(juv_tmp$Layer)[c(((length(unique(juv_tmp$Layer)))-1):1, length(unique(juv_tmp$Layer)))])
-      levels(juv_tmp$Layer) <- depth_labels
-      juv_tmp <- gather(juv_tmp, Box, number, 3:ncol(juv_tmp))
+      levels(juv_tmp$Layer) <- depth_labels  
+      juv_tmp<-data.frame(juv_tmp) #turn to df so gather works
+      juv_tmp <- gather(juv_tmp, Box, value = number, 3:ncol(juv_tmp))
       
       erla_plots[[paste(spp[[1]], "Juvenile")]] <- juv_tmp
       
@@ -267,7 +271,8 @@ create_vadt <- function(outdir, fgfile, biolprm, ncout, startyear, toutinc, diet
       colnames(ad_tmp) <- c("Layer", "Time", paste("Box", 0:(ncol(ad_tmp)-3), sep =" "))
       ad_tmp$Layer <- factor(ad_tmp$Layer,levels(ad_tmp$Layer)[c(((length(unique(ad_tmp$Layer)))-1):1, length(unique(ad_tmp$Layer)))])
       levels(ad_tmp$Layer) <- depth_labels
-      ad_tmp <- gather(ad_tmp, Box, number, 3:ncol(ad_tmp))
+      ad_tmp<-data.frame(ad_tmp)
+      ad_tmp <- gather(ad_tmp, Box, value = number, 3:ncol(ad_tmp))
       
       erla_plots[[paste(spp[[1]], "Adult")]] <- ad_tmp
     } 
@@ -284,7 +289,8 @@ create_vadt <- function(outdir, fgfile, biolprm, ncout, startyear, toutinc, diet
       colnames(ad_tmp) <- c("Layer", "Time", paste("Box", 0:(ncol(ad_tmp)-3), sep =" "))
       ad_tmp$Layer <- factor(ad_tmp$Layer,levels(ad_tmp$Layer)[c(((length(unique(ad_tmp$Layer)))-1):1, length(unique(ad_tmp$Layer)))])
       levels(ad_tmp$Layer) <- depth_labels
-      ad_tmp <- gather(ad_tmp, Box, number, 3:ncol(ad_tmp))
+      ad_tmp<-data.frame(ad_tmp)
+      ad_tmp <- gather(ad_tmp, Box, value = number, 3:ncol(ad_tmp))
       erla_plots[[paste(spp[[1]], "Adult")]] <- ad_tmp
     }
   }
@@ -324,7 +330,7 @@ create_vadt <- function(outdir, fgfile, biolprm, ncout, startyear, toutinc, diet
         colnames(tmp_invert) <- c("Layer", "Time", paste("Box", 0:(ncol(tmp_invert)-3), sep =" "))
         tmp_invert$Layer <- factor(tmp_invert$Layer,levels(tmp_invert$Layer)[c(((length(unique(tmp_invert$Layer)))-1):1, length(unique(tmp_invert$Layer)))])
         levels(tmp_invert$Layer) <- depth_labels
-        tmp_invert <- gather(tmp_invert, Box, number, 3:ncol(tmp_invert))
+        tmp_invert <- gather(tmp_invert, Box, value = number, 3:ncol(tmp_invert))
         invert_vars[[i]] <- tmp
         erla_plots[[invert_mnames[i]]] <- tmp_invert
     }
@@ -339,6 +345,7 @@ create_vadt <- function(outdir, fgfile, biolprm, ncout, startyear, toutinc, diet
         tmp_trace <- tmp
         tmp_trace <- as.data.frame(tmp_trace)
         tmp_trace$Box <- paste("Box", 0:(numboxes - 1))
+        tmp_trace<-data.frame(tmp_trace)
         tmp_trace <- gather(tmp_trace, Time, value = number, 1:(ncol(tmp_trace)-1))
         levels(tmp_trace$Time) <- 0:length(unique(tmp_trace$Time))
         tmp_trace$Time <- as.numeric(as.character(tmp_trace$Time))
@@ -353,7 +360,11 @@ create_vadt <- function(outdir, fgfile, biolprm, ncout, startyear, toutinc, diet
       colnames(tmp_trace) <- c("Layer", "Time", paste("Box", 0:(ncol(tmp_trace)-3), sep =" "))
       tmp_trace$Layer <- factor(tmp_trace$Layer,levels(tmp_trace$Layer)[c(((length(unique(tmp_trace$Layer)))-1):1, length(unique(tmp_trace$Layer)))])
       levels(tmp_trace$Layer) <- depth_labels
+      tmp_trace<-data.frame(tmp_trace)
       tmp_trace <- gather(tmp_trace, Box, number, 3:ncol(tmp_trace))
+      
+      
+      
       trace_vars[[i]] <- tmp
       erla_plots[[trace_names[i]]] <- tmp_trace
     }
